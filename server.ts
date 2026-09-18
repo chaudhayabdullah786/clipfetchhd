@@ -1234,36 +1234,33 @@ console.log("[BOOT] PORT: 3000");
       return next();
     });
   } else {
-    // server.mjs is compiled inside /dist, therefore __dirname is already /dist
-    const distPath = __dirname;
-    const indexPath = path.join(distPath, "index.html");
+  const distPath = path.resolve(process.cwd(), "dist");
+  const indexPath = path.join(distPath, "index.html");
 
-    // Serve production Vite assets
-    app.use(express.static(distPath));
+  console.log("[BOOT] Production dist:", distPath);
+  console.log("[BOOT] index.html exists:", fs.existsSync(indexPath));
 
-    // React SPA / CMS / SEO fallback
-    app.get("*", (req, res, next) => {
-      // Unknown API endpoints must not receive React HTML
-      if (req.path.startsWith("/api/")) {
-        return next();
+  app.use(express.static(distPath));
+
+  app.get("*", (req, res, next) => {
+    if (req.path.startsWith("/api/")) {
+      return next();
+    }
+
+    try {
+      const template = fs.readFileSync(indexPath, "utf-8");
+
+      if (!req.path.startsWith("/admin")) {
+        return handleHtmlRequest(req, res, template);
       }
 
-      try {
-        const template = fs.readFileSync(indexPath, "utf-8");
-
-        // Public pages receive SEO metadata injection
-        if (!req.path.startsWith("/admin")) {
-          return handleHtmlRequest(req, res, template);
-        }
-
-        // Admin is rendered by React
-        return res.sendFile(indexPath);
-      } catch (err) {
-        console.error("[Production HTML Error]", err);
-        return res.sendFile(indexPath);
-      }
-    });
-  }
+      return res.sendFile(indexPath);
+    } catch (err) {
+      console.error("[Production HTML Error]", err);
+      return res.sendFile(indexPath);
+    }
+  });
+}
 
   app.listen(PORT, "0.0.0.0", () => {
   console.log("[BOOT] Express listening successfully");

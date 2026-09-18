@@ -8,10 +8,10 @@
 },
 "scripts": {
   "dev": "tsx server.ts",
-  "build": "vite build && esbuild server.ts --bundle --platform=node --format=esm --target=node22 --outfile=dist/server.mjs --packages=external",
-  "start": "node start.mjs",
+  "build": "vite build && esbuild server.ts --bundle --platform=node --format=esm --target=node22 --outfile=server.mjs --packages=external",
+  "start": "node server.mjs",
   "preview": "vite preview",
-  "clean": "rimraf dist",
+  "clean": "rimraf dist server.mjs",
   "lint": "tsc --noEmit",
   "typecheck": "tsc --noEmit",
   "test": "tsx test/urlParser.test.ts"
