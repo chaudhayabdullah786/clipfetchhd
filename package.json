@@ -7,16 +7,15 @@
 "node": "22.x"
 },
 "scripts": {
-"dev": "tsx server.ts",
-"build": "vite build && esbuild server.ts --bundle --platform=node --format=esm --target=node22 --outfile=dist/server.mjs --packages=external",
-"start": "node dist/server.mjs"
-"preview": "vite preview",
-"clean": "rm -rf dist",
-"lint": "tsc --noEmit",
-"typecheck": "tsc --noEmit",
-"test": "tsx test/urlParser.test.ts"
-},
-"dependencies": {
+  "dev": "tsx server.ts",
+  "build": "vite build && esbuild server.ts --bundle --platform=node --format=esm --target=node22 --outfile=dist/server.mjs --packages=external",
+  "start": "node dist/server.mjs",
+  "preview": "vite preview",
+  "clean": "rimraf dist",
+  "lint": "tsc --noEmit",
+  "typecheck": "tsc --noEmit",
+  "test": "tsx test/urlParser.test.ts"
+},"dependencies": {
 "@google/genai": "^1.29.0",
 "@tailwindcss/vite": "^4.1.14",
 "@vitejs/plugin-react": "^5.0.4",
