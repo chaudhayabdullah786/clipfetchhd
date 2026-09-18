@@ -6,3 +6,17 @@ coverage/
 *.log
 .env*
 !.env.example
+"database.sqlite" 
+"database.sqlite-shm" 
+"database.sqlite-wal" 
+"*.sqlite.backup" 
+database.sqlite
+database.sqlite-shm
+database.sqlite-wal
+*.sqlite.backup
+.env
+database.sqlite
+database.sqlite-shm
+database.sqlite-wal
+*.sqlite.backup
+.env
