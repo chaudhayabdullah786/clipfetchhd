@@ -159,7 +159,12 @@ function getCountryFromIp(ip: string): string {
 }
 
 async function startServer() {
+  console.log("[BOOT] startServer entered");
+console.log("[BOOT] Node version:", process.version);
+console.log("[BOOT] NODE_ENV:", process.env.NODE_ENV);
+console.log("[BOOT] PORT: 3000");
   const app = express();
+
   // Ensure reverse proxy headers (e.g. Hostinger, Cloud Run) are trusted for req.secure, protocol and client IP
   app.set("trust proxy", 1);
   const PORT = 3000;
@@ -1261,8 +1266,9 @@ async function startServer() {
   }
 
   app.listen(PORT, "0.0.0.0", () => {
-    console.log(`ClipFetchHD Server running on http://localhost:${PORT}`);
-  });
+  console.log("[BOOT] Express listening successfully");
+  console.log(`ClipFetchHD Server running on port ${PORT}`);
+});
 }
 
 startServer();
