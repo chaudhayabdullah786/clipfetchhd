@@ -1191,17 +1191,17 @@ async function startServer() {
     }
   };
 
-  // Vite middleware for development vs static build in production
+    // Vite middleware for development vs static build in production
   if (process.env.NODE_ENV !== "production") {
     const vite = await createViteServer({
       server: { middlewareMode: true },
       appType: "custom"
     });
 
-    // Mount Vite dev middleware first to handle all JS/CSS/TSX modules and internal endpoints
+    // Vite must handle internal development modules first.
     app.use(vite.middlewares);
 
-    // HTML fallback with SSR SEO & bootstrap injection for client routes
+    // Development HTML fallback
     app.use(async (req, res, next) => {
       if (
         req.method === "GET" &&
@@ -1210,27 +1210,53 @@ async function startServer() {
         !req.path.startsWith("/download")
       ) {
         try {
-          const template = fs.readFileSync(path.resolve(__dirname, "index.html"), "utf-8");
-          const transformed = await vite.transformIndexHtml(req.originalUrl, template);
+          const template = fs.readFileSync(
+            path.resolve(__dirname, "index.html"),
+            "utf-8"
+          );
+
+          const transformed = await vite.transformIndexHtml(
+            req.originalUrl,
+            template
+          );
+
           return handleHtmlRequest(req, res, transformed);
-        } catch (e) {
-          return next(e);
+        } catch (err) {
+          return next(err);
         }
       }
-      next();
+
+      return next();
     });
   } else {
-    app.use(express.static(path.join(__dirname, "dist")));
-    app.get("*", (req, res) => {
-      if (!req.path.startsWith("/admin") && !req.path.startsWith("/api")) {
-        try {
-          const template = fs.readFileSync(path.join(__dirname, "dist", "index.html"), "utf-8");
-          return handleHtmlRequest(req, res, template);
-        } catch {
-          return res.sendFile(path.join(__dirname, "dist", "index.html"));
-        }
+    // server.mjs is compiled inside /dist, therefore __dirname is already /dist
+    const distPath = __dirname;
+    const indexPath = path.join(distPath, "index.html");
+
+    // Serve production Vite assets
+    app.use(express.static(distPath));
+
+    // React SPA / CMS / SEO fallback
+    app.get("*", (req, res, next) => {
+      // Unknown API endpoints must not receive React HTML
+      if (req.path.startsWith("/api/")) {
+        return next();
       }
-      res.sendFile(path.join(__dirname, "dist", "index.html"));
+
+      try {
+        const template = fs.readFileSync(indexPath, "utf-8");
+
+        // Public pages receive SEO metadata injection
+        if (!req.path.startsWith("/admin")) {
+          return handleHtmlRequest(req, res, template);
+        }
+
+        // Admin is rendered by React
+        return res.sendFile(indexPath);
+      } catch (err) {
+        console.error("[Production HTML Error]", err);
+        return res.sendFile(indexPath);
+      }
     });
   }
 
