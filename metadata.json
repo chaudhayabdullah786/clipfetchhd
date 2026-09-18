@@ -1,0 +1,6 @@
+{
+  "name": "ClipFetchHD",
+  "description": "Download public Instagram Reels as MP4 with ClipFetchHD. Paste a Reel link, preview the available video, and save it online quickly and easily.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
