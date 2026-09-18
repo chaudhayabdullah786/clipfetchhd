@@ -20,3 +20,5 @@ database.sqlite-shm
 database.sqlite-wal
 *.sqlite.backup
 .env
+node_modules/
+dist/
