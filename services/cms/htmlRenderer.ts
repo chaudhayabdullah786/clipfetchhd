@@ -16,6 +16,7 @@ export function renderBlocksToHtml(blocks: ContentBlock[]): string {
 
       switch (block.type) {
         case "h2_section":
+        case "heading_h2":
           inner = `<section class="cms-block cms-h2-section my-8">
             <h2 class="text-2xl md:text-3xl font-bold tracking-tight text-zinc-900 dark:text-white mb-4">${escapeHtml(block.heading)}</h2>
             <div class="prose dark:prose-invert max-w-none text-zinc-600 dark:text-zinc-300 leading-relaxed">${typeof block.content === "string" ? block.content : ""}</div>
@@ -23,6 +24,7 @@ export function renderBlocksToHtml(blocks: ContentBlock[]): string {
           break;
 
         case "h3_subsection":
+        case "heading_h3":
           inner = `<section class="cms-block cms-h3-section my-6">
             <h3 class="text-xl font-bold tracking-tight text-zinc-900 dark:text-white mb-2">${escapeHtml(block.heading)}</h3>
             <div class="text-zinc-600 dark:text-zinc-300 leading-relaxed">${typeof block.content === "string" ? block.content : ""}</div>
@@ -44,6 +46,7 @@ export function renderBlocksToHtml(blocks: ContentBlock[]): string {
           break;
 
         case "how_it_works_steps":
+        case "how-it-works":
         case "ordered_steps":
           const steps = Array.isArray(block.content) ? block.content : [];
           inner = `<div class="cms-block cms-steps my-8 space-y-4">
@@ -101,10 +104,21 @@ export function renderBlocksToHtml(blocks: ContentBlock[]): string {
           break;
 
         case "warning_callout":
+        case "warning_box":
         case "trust_legal_notice":
           inner = `<div class="cms-block cms-warning my-6 p-4 rounded-xl bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 text-amber-900 dark:text-amber-200">
             ${block.heading ? `<h3 class="font-bold text-sm mb-1">${escapeHtml(block.heading)}</h3>` : ""}
             <div class="text-sm leading-relaxed">${typeof block.content === "string" ? escapeHtml(block.content) : ""}</div>
+          </div>`;
+          break;
+
+        case "cta":
+        case "cta_banner":
+          const ctaContent = typeof block.content === "object" ? block.content : { text: block.content };
+          inner = `<div class="cms-block cms-cta my-8 p-8 rounded-3xl bg-zinc-900 text-white text-center space-y-4">
+            <h3 class="text-2xl font-bold">${escapeHtml(block.heading || "Ready to Download Instagram Reels?")}</h3>
+            <p class="text-zinc-300 text-sm max-w-md mx-auto">${escapeHtml(ctaContent.text || "")}</p>
+            <a href="/" class="inline-block px-6 py-3 rounded-xl bg-white text-zinc-900 font-bold text-sm">${escapeHtml(ctaContent.buttonText || "Open Downloader")}</a>
           </div>`;
           break;
 

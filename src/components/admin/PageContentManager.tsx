@@ -27,7 +27,8 @@ import {
   Loader2,
   Sparkles,
   ToggleLeft,
-  ToggleRight
+  ToggleRight,
+  ExternalLink
 } from "lucide-react";
 import { CmsPage, CmsPageVersion, ContentBlock } from "../../types/cms";
 import { BlockRenderer } from "../public/BlockRenderer";
@@ -49,6 +50,9 @@ export const PageContentManager: React.FC<PageContentManagerProps> = ({ authToke
   const [selectedPage, setSelectedPage] = useState<any | null>(null);
   const [activeTab, setActiveTab] = useState<"content" | "seo" | "social" | "schema" | "ads" | "preview" | "history">("content");
   const [saveStatus, setSaveStatus] = useState<string>("");
+  const [isSaving, setIsSaving] = useState(false);
+  const [isPublishing, setIsPublishing] = useState(false);
+  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
   const [previewDevice, setPreviewDevice] = useState<"desktop" | "tablet" | "mobile">("desktop");
   const [previewTheme, setPreviewTheme] = useState<"light" | "dark">("light");
 
@@ -90,10 +94,13 @@ export const PageContentManager: React.FC<PageContentManagerProps> = ({ authToke
     fetchPages();
   }, []);
 
-  const handleEditPage = async (pageId: number) => {
+  const handleEditPage = async (pageId: number, targetVersionId?: number) => {
     setLoading(true);
     try {
-      const res = await fetch(`/api/admin/cms/pages/${pageId}`, {
+      const url = targetVersionId 
+        ? `/api/admin/cms/pages/${pageId}?versionId=${targetVersionId}` 
+        : `/api/admin/cms/pages/${pageId}`;
+      const res = await fetch(url, {
         headers: getHeaders(),
         credentials: "include"
       });
@@ -101,7 +108,7 @@ export const PageContentManager: React.FC<PageContentManagerProps> = ({ authToke
         const data = await res.json();
         setSelectedPage(data);
         setEditingPageId(pageId);
-        setActiveTab("content");
+        setHasUnsavedChanges(false);
       }
     } catch {
       // Error
@@ -136,90 +143,192 @@ export const PageContentManager: React.FC<PageContentManagerProps> = ({ authToke
 
   const handleCreateDraft = async () => {
     if (!editingPageId) return;
+    setIsSaving(true);
+    setSaveStatus("Creating new draft...");
     try {
       const res = await fetch(`/api/admin/cms/pages/${editingPageId}/draft`, {
         method: "POST",
         headers: getHeaders(),
         credentials: "include",
-        body: JSON.stringify({ change_note: "Draft created by admin" })
+        body: JSON.stringify({ change_note: `Draft created from v${selectedPage?.active_version?.version_number || 1}` })
       });
       const data = await res.json();
       if (res.ok && data.success) {
-        await handleEditPage(editingPageId);
-        setSaveStatus("New draft version created");
-        setTimeout(() => setSaveStatus(""), 3000);
+        await handleEditPage(editingPageId, data.versionId);
+        await fetchPages();
+        setSaveStatus("New draft version created and loaded!");
+        setTimeout(() => setSaveStatus(""), 3500);
+      } else {
+        setSaveStatus(data.error || "Failed to create draft");
       }
     } catch {
-      // Error
+      setSaveStatus("Connection error creating draft");
+    } finally {
+      setIsSaving(false);
     }
   };
 
   const handleSaveDraft = async () => {
-    if (!selectedPage || !selectedPage.active_version) return;
+    if (!selectedPage || !selectedPage.active_version || !editingPageId) return;
     const version = selectedPage.active_version;
-    setSaveStatus("Saving...");
+    setIsSaving(true);
+    setSaveStatus("Saving changes...");
+
     try {
-      const res = await fetch(`/api/admin/cms/versions/${version.id}`, {
-        method: "PUT",
-        headers: getHeaders(),
-        credentials: "include",
-        body: JSON.stringify({
-          ...version,
-          show_tool: selectedPage.show_tool,
-          internal_name: selectedPage.internal_name
-        })
-      });
-      const data = await res.json();
-      if (res.ok && data.success) {
-        setSaveStatus("Saved successfully!");
-        setTimeout(() => setSaveStatus(""), 2500);
+      if (version.status === "published") {
+        // Create new draft version automatically so changes are safely saved
+        const draftRes = await fetch(`/api/admin/cms/pages/${editingPageId}/draft`, {
+          method: "POST",
+          headers: getHeaders(),
+          credentials: "include",
+          body: JSON.stringify({ change_note: `Draft branched from v${version.version_number}` })
+        });
+        const draftData = await draftRes.json();
+        if (draftRes.ok && draftData.success && draftData.versionId) {
+          const newVerId = draftData.versionId;
+          const saveRes = await fetch(`/api/admin/cms/versions/${newVerId}`, {
+            method: "PUT",
+            headers: getHeaders(),
+            credentials: "include",
+            body: JSON.stringify({
+              ...version,
+              show_tool: selectedPage.show_tool,
+              internal_name: selectedPage.internal_name
+            })
+          });
+          const saveData = await saveRes.json();
+          if (saveRes.ok && saveData.success) {
+            await handleEditPage(editingPageId, newVerId);
+            await fetchPages();
+            setHasUnsavedChanges(false);
+            setSaveStatus("Changes saved to new draft version!");
+            setTimeout(() => setSaveStatus(""), 3500);
+          } else {
+            setSaveStatus(saveData.error || "Failed to save draft contents");
+          }
+        } else {
+          setSaveStatus(draftData.error || "Failed to create draft version");
+        }
       } else {
-        setSaveStatus(data.error || "Failed to save draft");
+        // Active version is already a draft
+        const res = await fetch(`/api/admin/cms/versions/${version.id}`, {
+          method: "PUT",
+          headers: getHeaders(),
+          credentials: "include",
+          body: JSON.stringify({
+            ...version,
+            show_tool: selectedPage.show_tool,
+            internal_name: selectedPage.internal_name
+          })
+        });
+        const data = await res.json();
+        if (res.ok && data.success) {
+          await handleEditPage(editingPageId, version.id);
+          setHasUnsavedChanges(false);
+          setSaveStatus("Draft version saved successfully!");
+          setTimeout(() => setSaveStatus(""), 3000);
+        } else {
+          setSaveStatus(data.error || "Failed to save draft");
+        }
       }
     } catch {
       setSaveStatus("Error saving changes");
+    } finally {
+      setIsSaving(false);
     }
   };
 
   const handlePublish = async () => {
-    if (!selectedPage || !selectedPage.active_version) return;
+    if (!selectedPage || !selectedPage.active_version || !editingPageId) return;
     const version = selectedPage.active_version;
-    setSaveStatus("Publishing...");
-    try {
-      // Save any pending changes first
-      await fetch(`/api/admin/cms/versions/${version.id}`, {
-        method: "PUT",
-        headers: getHeaders(),
-        credentials: "include",
-        body: JSON.stringify({
-          ...version,
-          show_tool: selectedPage.show_tool,
-          internal_name: selectedPage.internal_name
-        })
-      });
+    setIsPublishing(true);
+    setSaveStatus("Publishing version live...");
 
-      const res = await fetch(`/api/admin/cms/versions/${version.id}/publish`, {
-        method: "POST",
-        headers: getHeaders(),
-        credentials: "include"
-      });
-      const data = await res.json();
-      if (res.ok && data.success) {
-        setSaveStatus("Published live!");
-        await handleEditPage(selectedPage.id);
-        await fetchPages();
-        setTimeout(() => setSaveStatus(""), 3000);
+    try {
+      if (version.status === "published") {
+        if (!hasUnsavedChanges) {
+          setSaveStatus("This version is already published live.");
+          setTimeout(() => setSaveStatus(""), 3000);
+          setIsPublishing(false);
+          return;
+        }
+        // Save pending changes into a new draft then publish it
+        const draftRes = await fetch(`/api/admin/cms/pages/${editingPageId}/draft`, {
+          method: "POST",
+          headers: getHeaders(),
+          credentials: "include",
+          body: JSON.stringify({ change_note: `Published update from v${version.version_number}` })
+        });
+        const draftData = await draftRes.json();
+        if (draftRes.ok && draftData.success && draftData.versionId) {
+          const newVerId = draftData.versionId;
+          await fetch(`/api/admin/cms/versions/${newVerId}`, {
+            method: "PUT",
+            headers: getHeaders(),
+            credentials: "include",
+            body: JSON.stringify({
+              ...version,
+              show_tool: selectedPage.show_tool,
+              internal_name: selectedPage.internal_name
+            })
+          });
+          const pubRes = await fetch(`/api/admin/cms/versions/${newVerId}/publish`, {
+            method: "POST",
+            headers: getHeaders(),
+            credentials: "include"
+          });
+          const pubData = await pubRes.json();
+          if (pubRes.ok && pubData.success) {
+            setSaveStatus("Published live successfully!");
+            await handleEditPage(editingPageId);
+            await fetchPages();
+            setHasUnsavedChanges(false);
+            setTimeout(() => setSaveStatus(""), 3500);
+          } else {
+            setSaveStatus(pubData.error || "Failed to publish");
+          }
+        }
       } else {
-        setSaveStatus(data.error || "Failed to publish");
+        // Draft version: save first then publish
+        await fetch(`/api/admin/cms/versions/${version.id}`, {
+          method: "PUT",
+          headers: getHeaders(),
+          credentials: "include",
+          body: JSON.stringify({
+            ...version,
+            show_tool: selectedPage.show_tool,
+            internal_name: selectedPage.internal_name
+          })
+        });
+
+        const res = await fetch(`/api/admin/cms/versions/${version.id}/publish`, {
+          method: "POST",
+          headers: getHeaders(),
+          credentials: "include"
+        });
+        const data = await res.json();
+        if (res.ok && data.success) {
+          setSaveStatus("Published live successfully!");
+          await handleEditPage(editingPageId);
+          await fetchPages();
+          setHasUnsavedChanges(false);
+          setTimeout(() => setSaveStatus(""), 3500);
+        } else {
+          setSaveStatus(data.error || "Failed to publish");
+        }
       }
     } catch {
       setSaveStatus("Error publishing version");
+    } finally {
+      setIsPublishing(false);
     }
   };
 
   const handleRollback = async (targetVersionId: number) => {
     if (!editingPageId) return;
     if (!confirm("Are you sure you want to restore this historical version? A new published version will be created.")) return;
+    setIsPublishing(true);
+    setSaveStatus("Restoring version...");
     try {
       const res = await fetch(`/api/admin/cms/pages/${editingPageId}/rollback`, {
         method: "POST",
@@ -231,11 +340,15 @@ export const PageContentManager: React.FC<PageContentManagerProps> = ({ authToke
       if (res.ok && data.success) {
         await handleEditPage(editingPageId);
         await fetchPages();
-        setSaveStatus("Restored version successfully!");
+        setSaveStatus("Restored version published successfully!");
         setTimeout(() => setSaveStatus(""), 3000);
+      } else {
+        setSaveStatus(data.error || "Failed to restore version");
       }
     } catch {
-      // Error
+      setSaveStatus("Connection error during restore");
+    } finally {
+      setIsPublishing(false);
     }
   };
 
@@ -259,6 +372,7 @@ export const PageContentManager: React.FC<PageContentManagerProps> = ({ authToke
         blocks: [...(selectedPage.active_version.blocks || []), newBlock]
       }
     });
+    setHasUnsavedChanges(true);
   };
 
   const updateBlock = (index: number, updated: Partial<ContentBlock>) => {
@@ -272,6 +386,7 @@ export const PageContentManager: React.FC<PageContentManagerProps> = ({ authToke
         blocks
       }
     });
+    setHasUnsavedChanges(true);
   };
 
   const moveBlock = (index: number, direction: "up" | "down") => {
@@ -291,6 +406,7 @@ export const PageContentManager: React.FC<PageContentManagerProps> = ({ authToke
         blocks
       }
     });
+    setHasUnsavedChanges(true);
   };
 
   const deleteBlock = (index: number) => {
@@ -304,6 +420,7 @@ export const PageContentManager: React.FC<PageContentManagerProps> = ({ authToke
         blocks
       }
     });
+    setHasUnsavedChanges(true);
   };
 
   const duplicateBlock = (index: number) => {
@@ -325,6 +442,7 @@ export const PageContentManager: React.FC<PageContentManagerProps> = ({ authToke
         blocks
       }
     });
+    setHasUnsavedChanges(true);
   };
 
   // Filtered pages list
@@ -589,7 +707,7 @@ export const PageContentManager: React.FC<PageContentManagerProps> = ({ authToke
   return (
     <div className="space-y-6">
       {/* Top action header */}
-      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 bg-white dark:bg-zinc-900 p-4 rounded-2xl border border-zinc-200 dark:border-zinc-800 shadow-sm">
+      <div className="flex flex-col lg:flex-row items-start lg:items-center justify-between gap-4 bg-white dark:bg-zinc-900 p-4 rounded-2xl border border-zinc-200 dark:border-zinc-800 shadow-sm">
         <div className="flex items-center gap-3">
           <button
             type="button"
@@ -601,63 +719,114 @@ export const PageContentManager: React.FC<PageContentManagerProps> = ({ authToke
             className="p-2 rounded-xl text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors cursor-pointer"
             title="Back to Pages List"
           >
-            <ArrowLeft size={16} />
+            <ArrowLeft size={18} />
           </button>
           <div>
-            <div className="flex items-center gap-2">
-              <h2 className="text-lg font-bold text-zinc-900 dark:text-white">
+            <div className="flex flex-wrap items-center gap-2">
+              <h2 className="text-base sm:text-lg font-bold text-zinc-900 dark:text-white">
                 {selectedPage.internal_name}
               </h2>
-              <span className="font-mono text-xs text-purple-600 dark:text-purple-400">
+              <span className="font-mono text-xs text-purple-600 dark:text-purple-400 font-semibold">
                 {selectedPage.route}
               </span>
-              <span className="text-[10px] px-2 py-0.5 rounded-md bg-zinc-100 dark:bg-zinc-800 text-zinc-500 font-mono">
-                v{v.version_number || 1} ({v.status || "draft"})
+              
+              {/* Version dropdown selector */}
+              {selectedPage.versions && selectedPage.versions.length > 0 && (
+                <div className="flex items-center gap-1">
+                  <span className="text-[11px] font-medium text-zinc-400">Version:</span>
+                  <select
+                    value={v.id || ""}
+                    onChange={(e) => handleEditPage(selectedPage.id, Number(e.target.value))}
+                    className="px-2 py-0.5 rounded-md bg-zinc-100 dark:bg-zinc-800 border border-zinc-300 dark:border-zinc-700 text-zinc-800 dark:text-zinc-200 font-mono text-[11px] font-bold outline-none cursor-pointer"
+                  >
+                    {selectedPage.versions.map((ver: CmsPageVersion) => (
+                      <option key={ver.id} value={ver.id}>
+                        v{ver.version_number} ({ver.status}){ver.id === selectedPage.published_version_id ? " [LIVE]" : ""}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
+              {/* Status Badge */}
+              <span className={`text-[10px] font-bold px-2 py-0.5 rounded-md uppercase tracking-wider ${
+                v.status === "published"
+                  ? "bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-400 border border-emerald-300 dark:border-emerald-800"
+                  : v.status === "draft"
+                  ? "bg-amber-100 dark:bg-amber-950/60 text-amber-700 dark:text-amber-400 border border-amber-300 dark:border-amber-800"
+                  : "bg-zinc-100 dark:bg-zinc-800 text-zinc-500 border border-zinc-300 dark:border-zinc-700"
+              }`}>
+                {v.status === "published" ? "Live Published" : v.status === "draft" ? "Draft" : v.status}
               </span>
+
+              {/* Unsaved changes indicator */}
+              {hasUnsavedChanges && (
+                <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md text-[10px] font-bold bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-400/30">
+                  <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" />
+                  Unsaved Edits
+                </span>
+              )}
             </div>
-            <p className="text-[11px] text-zinc-400">
-              Editing version: {v.change_note || "Draft"}
+            <p className="text-[11px] text-zinc-400 mt-0.5">
+              Change Note: <span className="font-medium text-zinc-600 dark:text-zinc-300">{v.change_note || "Initial version"}</span>
             </p>
           </div>
         </div>
 
-        <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
+        <div className="flex flex-wrap items-center gap-2 w-full lg:w-auto justify-start lg:justify-end">
           {saveStatus && (
-            <span className="text-xs font-semibold text-emerald-600 dark:text-emerald-400 animate-pulse mr-2">
+            <span className="text-xs font-semibold text-purple-600 dark:text-purple-400 mr-1 animate-pulse">
               {saveStatus}
             </span>
           )}
 
-          {v.status === "published" ? (
-            <button
-              type="button"
-              onClick={handleCreateDraft}
-              className="flex items-center gap-1.5 px-3 py-1.5 bg-zinc-100 dark:bg-zinc-800 hover:bg-zinc-200 dark:hover:bg-zinc-700 text-zinc-800 dark:text-zinc-200 rounded-xl text-xs font-semibold transition-colors cursor-pointer"
-            >
-              <Plus size={14} />
-              <span>New Draft</span>
-            </button>
-          ) : (
-            <>
-              <button
-                type="button"
-                onClick={handleSaveDraft}
-                className="flex items-center gap-1.5 px-3 py-1.5 bg-zinc-100 dark:bg-zinc-800 hover:bg-zinc-200 dark:hover:bg-zinc-700 text-zinc-800 dark:text-zinc-200 rounded-xl text-xs font-semibold transition-colors cursor-pointer"
-              >
-                <Save size={14} />
-                <span>Save Draft</span>
-              </button>
+          {/* View Live Page Button */}
+          <a
+            href={selectedPage.route}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-zinc-100 dark:bg-zinc-800 hover:bg-zinc-200 dark:hover:bg-zinc-700 text-zinc-700 dark:text-zinc-300 rounded-xl text-xs font-semibold transition-colors cursor-pointer"
+            title="Open live page in new tab"
+          >
+            <ExternalLink size={13} />
+            <span>View Live</span>
+          </a>
 
-              <button
-                type="button"
-                onClick={handlePublish}
-                className="flex items-center gap-1.5 px-4 py-1.5 bg-gradient-to-r from-purple-600 to-red-500 hover:from-purple-700 hover:to-red-600 text-white rounded-xl text-xs font-bold shadow-md transition-all cursor-pointer"
-              >
-                <CheckCircle2 size={14} />
-                <span>Publish Live</span>
-              </button>
-            </>
-          )}
+          {/* New Draft Button */}
+          <button
+            type="button"
+            onClick={handleCreateDraft}
+            disabled={isSaving || isPublishing}
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-zinc-100 dark:bg-zinc-800 hover:bg-purple-50 dark:hover:bg-purple-950/50 hover:text-purple-600 dark:hover:text-purple-400 text-zinc-700 dark:text-zinc-300 rounded-xl text-xs font-semibold transition-colors disabled:opacity-50 cursor-pointer"
+            title="Create a new draft version from current content"
+          >
+            <Plus size={13} />
+            <span>New Draft</span>
+          </button>
+
+          {/* Save Changes / Save Draft Button */}
+          <button
+            type="button"
+            onClick={handleSaveDraft}
+            disabled={isSaving || isPublishing}
+            className="flex items-center gap-1.5 px-3.5 py-1.5 bg-zinc-900 dark:bg-white hover:bg-zinc-800 dark:hover:bg-zinc-100 text-white dark:text-zinc-900 rounded-xl text-xs font-bold transition-all shadow-sm disabled:opacity-50 cursor-pointer"
+            title="Save changes to current version or new draft"
+          >
+            {isSaving ? <Loader2 size={13} className="animate-spin" /> : <Save size={13} />}
+            <span>{v.status === "published" ? "Save as Draft" : "Save Changes"}</span>
+          </button>
+
+          {/* Publish Live Button */}
+          <button
+            type="button"
+            onClick={handlePublish}
+            disabled={isSaving || isPublishing}
+            className="flex items-center gap-1.5 px-4 py-1.5 bg-gradient-to-r from-purple-600 via-pink-600 to-red-500 hover:from-purple-700 hover:via-pink-700 hover:to-red-600 text-white rounded-xl text-xs font-bold shadow-md shadow-purple-500/20 transition-all disabled:opacity-50 cursor-pointer"
+            title="Save and publish this version immediately to the live public page"
+          >
+            {isPublishing ? <Loader2 size={13} className="animate-spin" /> : <CheckCircle2 size={13} />}
+            <span>Publish Live</span>
+          </button>
         </div>
       </div>
 
@@ -1242,14 +1411,21 @@ export const PageContentManager: React.FC<PageContentManagerProps> = ({ authToke
                   </p>
                 </div>
 
-                <div>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => handleEditPage(selectedPage.id, ver.id)}
+                    className="px-2.5 py-1 bg-zinc-100 dark:bg-zinc-800 hover:bg-zinc-200 dark:hover:bg-zinc-700 text-zinc-700 dark:text-zinc-300 rounded-lg text-xs font-semibold transition-colors cursor-pointer"
+                  >
+                    Load in Editor
+                  </button>
                   {ver.id !== selectedPage.published_version_id && (
                     <button
                       type="button"
                       onClick={() => handleRollback(ver.id)}
-                      className="px-3 py-1 bg-zinc-100 dark:bg-zinc-800 hover:bg-purple-50 dark:hover:bg-purple-950 hover:text-purple-600 text-zinc-700 dark:text-zinc-300 rounded-lg text-xs font-semibold transition-colors cursor-pointer"
+                      className="px-3 py-1 bg-purple-50 dark:bg-purple-950/50 hover:bg-purple-100 dark:hover:bg-purple-900/60 text-purple-700 dark:text-purple-300 rounded-lg text-xs font-semibold transition-colors cursor-pointer"
                     >
-                      Restore this Version
+                      Restore Live
                     </button>
                   )}
                 </div>

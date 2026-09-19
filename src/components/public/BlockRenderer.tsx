@@ -32,6 +32,7 @@ export const BlockRenderer: React.FC<BlockRendererProps> = ({ blocks, currentRou
       {blocks.filter(b => b.enabled).map((block, idx) => {
         switch (block.type) {
           case "h2_section":
+          case "heading_h2":
             return (
               <section key={block.id || idx} className="space-y-4 pt-4">
                 <h2 className="text-2xl md:text-3xl font-black tracking-tight text-zinc-900 dark:text-white">
@@ -45,6 +46,7 @@ export const BlockRenderer: React.FC<BlockRendererProps> = ({ blocks, currentRou
             );
 
           case "h3_subsection":
+          case "heading_h3":
             return (
               <section key={block.id || idx} className="space-y-2 pt-2">
                 <h3 className="text-xl font-bold tracking-tight text-zinc-900 dark:text-white">
@@ -85,6 +87,7 @@ export const BlockRenderer: React.FC<BlockRendererProps> = ({ blocks, currentRou
             );
 
           case "how_it_works_steps":
+          case "how-it-works":
           case "ordered_steps":
             const steps = Array.isArray(block.content) ? block.content : [];
             return (
@@ -208,6 +211,7 @@ export const BlockRenderer: React.FC<BlockRendererProps> = ({ blocks, currentRou
             );
 
           case "warning_callout":
+          case "warning_box":
             return (
               <div 
                 key={block.id || idx} 
@@ -283,6 +287,7 @@ export const BlockRenderer: React.FC<BlockRendererProps> = ({ blocks, currentRou
             );
 
           case "cta":
+          case "cta_banner":
             const ctaContent = typeof block.content === "object" ? block.content : { text: block.content };
             return (
               <div 

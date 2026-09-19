@@ -159,12 +159,7 @@ function getCountryFromIp(ip: string): string {
 }
 
 async function startServer() {
-  console.log("[BOOT] startServer entered");
-console.log("[BOOT] Node version:", process.version);
-console.log("[BOOT] NODE_ENV:", process.env.NODE_ENV);
-console.log("[BOOT] PORT: 3000");
   const app = express();
-
   // Ensure reverse proxy headers (e.g. Hostinger, Cloud Run) are trusted for req.secure, protocol and client IP
   app.set("trust proxy", 1);
   const PORT = 3000;
@@ -892,7 +887,7 @@ console.log("[BOOT] PORT: 3000");
     }
   });
 
-  app.get("/api/public/pages/by-route", (req, res) => {
+  const handlePublicPageByRoute = (req: any, res: any) => {
     try {
       const route = typeof req.query.route === "string" ? req.query.route : "/";
       const allowDraft = req.query.allowDraft === "1";
@@ -904,7 +899,10 @@ console.log("[BOOT] PORT: 3000");
     } catch (err: any) {
       res.status(500).json({ error: err.message || "Failed to load page" });
     }
-  });
+  };
+
+  app.get("/api/public/pages/by-route", handlePublicPageByRoute);
+  app.get("/api/public/page", handlePublicPageByRoute);
 
     app.get("/api/public/blog", (req, res) => {
     try {
@@ -953,7 +951,8 @@ console.log("[BOOT] PORT: 3000");
   app.get("/api/admin/cms/pages/:id", (req, res) => {
     const auth = getAdminAuth(req);
     if (!auth.authenticated) return res.status(401).json({ error: "Unauthorized" });
-    const page = cmsService.getPageById(parseInt(req.params.id, 10));
+    const targetVersionId = req.query.versionId ? parseInt(req.query.versionId as string, 10) : undefined;
+    const page = cmsService.getPageById(parseInt(req.params.id, 10), targetVersionId);
     if (!page) return res.status(404).json({ error: "Page not found" });
     res.json(page);
   });
@@ -1196,17 +1195,17 @@ console.log("[BOOT] PORT: 3000");
     }
   };
 
-    // Vite middleware for development vs static build in production
+  // Vite middleware for development vs static build in production
   if (process.env.NODE_ENV !== "production") {
     const vite = await createViteServer({
       server: { middlewareMode: true },
       appType: "custom"
     });
 
-    // Vite must handle internal development modules first.
+    // Mount Vite dev middleware first to handle all JS/CSS/TSX modules and internal endpoints
     app.use(vite.middlewares);
 
-    // Development HTML fallback
+    // HTML fallback with SSR SEO & bootstrap injection for client routes
     app.use(async (req, res, next) => {
       if (
         req.method === "GET" &&
@@ -1215,57 +1214,33 @@ console.log("[BOOT] PORT: 3000");
         !req.path.startsWith("/download")
       ) {
         try {
-          const template = fs.readFileSync(
-            path.resolve(__dirname, "index.html"),
-            "utf-8"
-          );
-
-          const transformed = await vite.transformIndexHtml(
-            req.originalUrl,
-            template
-          );
-
+          const template = fs.readFileSync(path.resolve(__dirname, "index.html"), "utf-8");
+          const transformed = await vite.transformIndexHtml(req.originalUrl, template);
           return handleHtmlRequest(req, res, transformed);
-        } catch (err) {
-          return next(err);
+        } catch (e) {
+          return next(e);
         }
       }
-
-      return next();
+      next();
     });
   } else {
-  const distPath = path.resolve(process.cwd(), "dist");
-  const indexPath = path.join(distPath, "index.html");
-
-  console.log("[BOOT] Production dist:", distPath);
-  console.log("[BOOT] index.html exists:", fs.existsSync(indexPath));
-
-  app.use(express.static(distPath));
-
-  app.get("*", (req, res, next) => {
-    if (req.path.startsWith("/api/")) {
-      return next();
-    }
-
-    try {
-      const template = fs.readFileSync(indexPath, "utf-8");
-
-      if (!req.path.startsWith("/admin")) {
-        return handleHtmlRequest(req, res, template);
+    app.use(express.static(path.join(__dirname, "dist")));
+    app.get("*", (req, res) => {
+      if (!req.path.startsWith("/admin") && !req.path.startsWith("/api")) {
+        try {
+          const template = fs.readFileSync(path.join(__dirname, "dist", "index.html"), "utf-8");
+          return handleHtmlRequest(req, res, template);
+        } catch {
+          return res.sendFile(path.join(__dirname, "dist", "index.html"));
+        }
       }
-
-      return res.sendFile(indexPath);
-    } catch (err) {
-      console.error("[Production HTML Error]", err);
-      return res.sendFile(indexPath);
-    }
-  });
-}
+      res.sendFile(path.join(__dirname, "dist", "index.html"));
+    });
+  }
 
   app.listen(PORT, "0.0.0.0", () => {
-  console.log("[BOOT] Express listening successfully");
-  console.log(`ClipFetchHD Server running on port ${PORT}`);
-});
+    console.log(`ClipFetchHD Server running on http://localhost:${PORT}`);
+  });
 }
 
 startServer();

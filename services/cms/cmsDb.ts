@@ -727,7 +727,7 @@ export class CmsService {
     }));
   }
 
-  getPageById(id: number): (CmsPage & { versions: CmsPageVersion[]; active_version?: CmsPageVersion }) | null {
+  getPageById(id: number, targetVersionId?: number): (CmsPage & { versions: CmsPageVersion[]; active_version?: CmsPageVersion }) | null {
     const page = this.db.prepare("SELECT * FROM cms_pages WHERE id = ?").get(id) as any;
     if (!page) return null;
 
@@ -735,8 +735,10 @@ export class CmsService {
       SELECT * FROM cms_page_versions WHERE page_id = ? ORDER BY version_number DESC
     `).all(id) as any[];
 
-    // Hydrate blocks for the active version (either latest draft or published)
-    const activeVersionRaw = versions.find(v => v.id === page.published_version_id) || versions[0];
+    // Hydrate blocks for the active version: targetVersionId if requested, or latest draft, or published version, or latest version
+    const activeVersionRaw = targetVersionId 
+      ? (versions.find(v => v.id === targetVersionId) || versions.find(v => v.id === page.published_version_id) || versions[0])
+      : (versions.find(v => v.status === "draft") || versions.find(v => v.id === page.published_version_id) || versions[0]);
     let activeVersion: CmsPageVersion | undefined = undefined;
 
     if (activeVersionRaw) {
@@ -1128,6 +1130,11 @@ export class CmsService {
   publishPageVersion(versionId: number): { success: boolean; error?: string } {
     const version = this.db.prepare("SELECT * FROM cms_page_versions WHERE id = ?").get(versionId) as any;
     if (!version) return { success: false, error: "Version not found" };
+
+    // Archive previous published versions of this page
+    this.db.prepare(`
+      UPDATE cms_page_versions SET status = 'archived' WHERE page_id = ? AND id != ? AND status = 'published'
+    `).run(version.page_id, versionId);
 
     // Update version status to published
     this.db.prepare(`
